@@ -26,7 +26,7 @@ This project implements a **high-throughput, time-sliced spatial mutation engine
 - **FIFO Serialized Database Ingestion:** Decouples persistent relational writes from the simulation loop via a dedicated single-thread FIFO drain pipeline, ensuring zero-latency statistics recording and transactional integrity even during crash states.
 
 > 📄 **Looking for the complete technical breakdown?**  
-> Read the full 15-minute engineering specification: **[Architecture Deep Dive & Systems Whitepaper](docs/architecture-deep-dive.md)**.
+> Read the full 10-minute engineering specification: **[Architecture Deep Dive & Systems Whitepaper](docs/architecture-deep-dive.md)**.
 
 ---
 
@@ -96,7 +96,7 @@ Continuously benchmarked under multi-arena concurrent stress testing on dedicate
 
 ## Documentation Index
 
-- **[docs/architecture-deep-dive.md](docs/architecture-deep-dive.md):** Complete 15-minute engineering whitepaper covering time-slicing math, instance lifecycle algorithms, concurrent database synchronization, and memory recycling benchmarks.
+- **[docs/architecture-deep-dive.md](docs/architecture-deep-dive.md):** Complete 10-minute engineering whitepaper covering time-slicing math, instance lifecycle algorithms, concurrent database synchronization, and memory recycling benchmarks.
 
 ---
 
