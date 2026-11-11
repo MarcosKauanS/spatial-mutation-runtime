@@ -1,7 +1,7 @@
 # High-Throughput World Mutation & Ephemeral Runtime Engine
 ### Time-Sliced Spatial Reconstruction & Zero-Allocation State Pipeline
 **Discipline:** Distributed Game Infrastructure, Low-Latency Spatial Computing, JVM Systems Optimization  
-**Target Architecture:** Java Virtual Machine (Java 8+) / High-Concurrency Event Scheduling / In-Memory Spatial Serialization (SWM & NMS)
+**Target Architecture:** Java Virtual Machine (Java 8+) / High-Concurrency Event Scheduling / In-Memory Spatial Serialization (Memory-Mapped Blobs)
 
 ---
 
@@ -16,7 +16,7 @@
 Real-time competitive multiplayer engines operate under an unforgiving scheduling deadline: the **50-millisecond server tick budget (20.0 TPS)**. In competitive environments involving continuous arena teardowns, spatial structure creation, and real-time world destruction, traditional world management primitives introduce catastrophic performance bottlenecks:
 
 1. **Main-Thread Tick Loop Starvation:** Bulk block modifications (e.g., placing 30,000+ voxel blocks upon match initialization or bed destruction) lock the main simulation thread, precipitating massive tick drops (TPS plunging below 12.0) and network desynchronization.
-2. **Synchronous File System I/O Deadlocks:** Standard region-based disk writes (`.mca` files) generate blocking kernel I/O during match creation and deletion, introducing random frame freezes.
+2. **Synchronous File System I/O Deadlocks:** Standard region-based disk writes generate blocking kernel I/O during match creation and deletion, introducing random frame freezes.
 3. **Garbage Collection (GC) Pressure:** Instantiating temporary state objects, block position wrappers, and unpooled world instances triggers frequent young-generation Eden churn and stop-the-world GC pauses.
 
 This project implements a **high-throughput, time-sliced spatial mutation engine** engineered to guarantee tickrate stability under heavy concurrent workload:
@@ -53,7 +53,7 @@ flowchart TD
     subgraph MemoryLifecycle["3. Ephemeral In-Memory World Instance Pool"]
         MATCH --> POOL[Instance Allocator / Recycler]
         POOL -->|Check Available| RECYCLE[Re-provision Reusable World]
-        POOL -->|Cold Start| SWM[In-Memory Clone: SlimeWorldManager]
+        POOL -->|Cold Start| SWM[In-Memory Clone: Memory-Mapped Spatial Store]
         SWM --> FORBID[Enforce Read-Only & AutoSave = False]
         FORBID --> MEM_RUN[(Memory-Mapped World Instance)]
         MEM_RUN --> TEARDOWN[Async Clean & Evaporation]
@@ -89,7 +89,7 @@ Continuously benchmarked under multi-arena concurrent stress testing on dedicate
 - **Server Tickrate Under Load:** Maintained **20.0 / 20.0 TPS** during simultaneous generation and time-sliced mutation of 10+ concurrent arenas.
 - **Maximum Block Throughput:** Sustained peak ingestion of **20,000 spatial mutations per second** across distributed tick slices.
 - **Main-Thread Tick Pause Duration:** Reduced bulk block pasting latency from **~340 ms (7 dropped ticks)** down to **$\le 1.8\text{ ms}$ per tick slice**.
-- **Instance Provisioning Latency:** Reusable instance provisioning in **$< 40\text{ ms}$**; cold in-memory cloning in **$< 280\text{ ms}$** (vs. 2,400+ ms with disk-backed region files).
+- **Instance Provisioning Latency:** Reusable instance provisioning in **$< 40\text{ ms}$**; cold in-memory cloning in **$< 280\text{ ms}$** (vs. 2,400+ ms with disk-backed storage files).
 - **Zero-Allocation Coordinate Lookups:** Cached spatial coordinate hashing yielding $O(1)$ block retrieval with **0 dynamic heap allocations** during combat simulation.
 
 ---

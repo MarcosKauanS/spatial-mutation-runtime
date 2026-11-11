@@ -1,7 +1,7 @@
 # High-Throughput World Mutation & Ephemeral Runtime Engine
 ### Architecture Whitepaper: Time-Sliced Spatial Reconstruction, In-Memory Ephemeral Lifecycle, and Zero-Contention State Synchronization in High-Tick Multi-User Runtimes
 **Discipline:** High-Concurrency Game Systems, Low-Latency Spatial Computing, JVM Memory Architecture  
-**Target Runtimes:** Java Virtual Machine (Java 8+) / Bukkit-Spigot Event Loop / High-Throughput Memory-Mapped Spatial Serialization  
+**Target Runtimes:** Java Virtual Machine (Java 8+) / High-Frequency Simulation Tick Loop / High-Throughput Memory-Mapped Spatial Serialization  
 **Production Scope:** High-Concurrency Competitive Multiplayer Game Clusters
 
 ---
@@ -24,7 +24,7 @@ Placing or restoring a dense spatial structure (e.g., a multi-layered defensive 
 To connected clients, this manifests as rubberbanding, dropped inputs, and complete simulation freezes.
 
 ### 1.2 Disk I/O & Region-File Bottlenecks
-Traditional world initialization formats rely on synchronous disk reads and writes across `.mca` region files. Loading a new temporary world instance or tearing down completed match terrain generates sustained kernel disk I/O, filling OS page caches and introducing unpredictable storage-tier latency spikes. Under high match rotation, disk churn quickly degrades whole-server throughput.
+Traditional world initialization formats rely on synchronous disk reads and writes across storage region files. Loading a new temporary world instance or tearing down completed match terrain generates sustained kernel disk I/O, filling OS page caches and introducing unpredictable storage-tier latency spikes. Under high match rotation, disk churn quickly degrades whole-server throughput.
 
 ### 1.3 Asynchronous SQLite Concurrency & JVM State Corruption
 Persisting player telemetry, match outcomes, and leaderboard rankings often requires relational database persistence. However, embedded database engines (such as SQLite) do not permit concurrent write transactions on a single connection handle; doing so triggers immediate `database is locked` fatal exceptions. 
@@ -95,7 +95,7 @@ flowchart TD
         ORCH[Match Manager] --> ALLOC[Instance Allocator]
         ALLOC --> POOL{Reusable World in Deque?}
         POOL -- Yes --> REUSE[Acquire Reusable World]
-        POOL -- No --> COLD[Spawn Ephemeral SlimeWorld Clone]
+        POOL -- No --> COLD[Spawn Ephemeral In-Memory Clone]
         REUSE --> CONFIG[Enforce Zero-Persistence Rules]
         COLD --> CONFIG
     end
@@ -103,10 +103,10 @@ flowchart TD
     subgraph TimeSlicedPipeline["2. Time-Sliced Spatial Mutator"]
         CONFIG --> TEMPLATE[Load Compressed Template Spec]
         TEMPLATE --> VALID[Validate Block Ceiling: N <= 32,768]
-        VALID --> SCHED[Schedule BukkitRunnable Tick Loop]
+        VALID --> SCHED[Schedule Deterministic Sliced Task]
         
         SCHED --> SLICE[Process Slice: <= 1,000 Blocks]
-        SLICE --> LIGHT[Apply Block Type: applyPhysics = false]
+        SLICE --> LIGHT[Apply Block State: disableRedundantPhysics = true]
         SLICE --> CHECK{Work Complete?}
         CHECK -- No --> YIELD[Yield to Engine Tick Loop]
         YIELD --> SCHED
@@ -138,30 +138,30 @@ flowchart TD
 ## 4. Deep Dive: Memory-Mapped Ephemeral Instance Pool
 
 ### 4.1 Disk I/O Elimination via In-Memory World Cloning
-To achieve sub-second arena provisioning, the architecture integrates direct in-memory world cloning via reflection-bridged **SlimeWorldManager (SWM)** runtime APIs:
+To achieve sub-second arena provisioning, the architecture integrates direct in-memory spatial cloning via reflection-bridged memory-mapped spatial serializers:
 
 ```java
 // Sanitized architectural pattern: Reflection-bridged in-RAM ephemeral cloning
-public void create(ArenaMap map, Callback callback) {
+public void create(SpatialMap map, Callback callback) {
     String instanceName = INSTANCE_PREFIX + UUID.randomUUID().toString().substring(0, 10);
     
     // Locate in-memory template representation
-    Object slimeWorldTemplate = getSlimeWorldInstance(templateName);
+    Object spatialTemplate = getSpatialWorldInstance(templateName);
     
     // Execute zero-disk clone entirely in virtual heap memory
-    Method cloneMethod = slimeWorldTemplate.getClass().getMethod("clone", String.class);
-    Object clonedSlimeWorld = cloneMethod.invoke(slimeWorldTemplate, instanceName);
+    Method cloneMethod = spatialTemplate.getClass().getMethod("clone", String.class);
+    Object clonedSpatialWorld = cloneMethod.invoke(spatialTemplate, instanceName);
     
     // Enforce strict read-only lock: prevents dirty chunk commits
-    Method setReadOnly = clonedSlimeWorld.getClass().getMethod("setReadOnly", boolean.class);
-    setReadOnly.invoke(clonedSlimeWorld, true);
+    Method setReadOnly = clonedSpatialWorld.getClass().getMethod("setReadOnly", boolean.class);
+    setReadOnly.invoke(clonedSpatialWorld, true);
     
-    // Generate volatile Bukkit world asynchronously
-    Method generateMethod = swmPlugin.getClass().getMethod("generateWorld", SlimeWorldClass);
-    CompletableFuture<?> future = (CompletableFuture<?>) generateMethod.invoke(swmPlugin, clonedSlimeWorld);
+    // Generate volatile spatial runtime instance asynchronously
+    Method generateMethod = spatialEngine.getClass().getMethod("generateWorld", SpatialWorldDescriptor);
+    CompletableFuture<?> future = (CompletableFuture<?>) generateMethod.invoke(spatialEngine, clonedSpatialWorld);
     
     future.thenRun(() -> {
-        World world = Bukkit.getWorld(instanceName);
+        SpatialWorld world = simulationHost.getWorld(instanceName);
         configureArenaWorld(world);
         callback.onReady(world);
     });
@@ -171,19 +171,19 @@ public void create(ArenaMap map, Callback callback) {
 ### 4.2 Arena Volatility Hardening
 To prevent memory leaks and stop the OS from writing unwanted swap files, each generated world undergoes strict parameter freezing:
 1. `world.setAutoSave(false)`: Disables automatic periodic chunk flushes to disk.
-2. `world.setKeepSpawnInMemory(false)`: Releases idle spawn chunks when players evacuate.
-3. `world.setGameRuleValue("doMobSpawning", "false")`: Eliminates AI entity tick overhead.
-4. `world.setGameRuleValue("doDaylightCycle", "false")`: Locks world time at midday (`6000L`), removing diurnal light update recalculations across chunk sections.
+2. `world.setKeepSpawnInMemory(false)`: Releases idle spawn sectors when players evacuate.
+3. `world.setSimulationRule("entity_ticking", false)`: Eliminates AI and non-player entity simulation overhead.
+4. `world.setTimeProgression(false)`: Locks environmental lighting state, removing diurnal light update recalculations across chunk sections.
 
 ### 4.3 Double-Ended Queue World Recycling Pool
-Instead of allocating and discarding full world handles—which causes OS file-descriptor churn and JVM Metaspace exhaustion—completed arenas are routed to a double-ended recycling pool (`Deque<World> reusableWorlds`):
+Instead of allocating and discarding full world handles—which causes OS file-descriptor churn and JVM Metaspace exhaustion—completed arenas are routed to a double-ended recycling pool (`Deque<SpatialWorld> reusableWorlds`):
 
 ```math
 \text{Provisioning Latency} = 
 \begin{cases} 
 32\text{ ms} & \text{if } |\text{reusableWorlds}| > 0 \quad (\text{Pool Hit}) \\
-270\text{ ms} & \text{if } |\text{reusableWorlds}| = 0 \quad (\text{In-Memory SWM Clone}) \\
-2,450\text{ ms} & \text{Legacy Disk Region Load} \quad (\text{Avoided})
+270\text{ ms} & \text{if } |\text{reusableWorlds}| = 0 \quad (\text{In-Memory RAM Clone}) \\
+2,450\text{ ms} & \text{Legacy Disk File Load} \quad (\text{Avoided})
 \end{cases}
 ```
 
@@ -191,15 +191,15 @@ Instead of allocating and discarding full world handles—which causes OS file-d
 
 ## 5. Analytical Parametric Raycasting Engine
 
-Standard Bukkit plugin architectures detect interactions with floating text or custom interface panels by registering invisible physical entities (`ArmorStand`) and listening to Bukkit `PlayerInteractAtEntityEvent`. 
+Standard spatial simulation architectures detect interactions with floating text or custom interface panels by instantiating invisible physical collision entities (`SpatialMarkerEntity`) and polling collision listeners (`EntityInteractionEvent`). 
 
-However, spawning hundreds of physical armor stands per arena creates severe operational costs:
+However, spawning hundreds of physical markers per arena creates severe operational costs:
 * Client-side entity rendering lag.
-* Server-side entity tick loops checking collision boxes every 50ms.
-* NMS packet tracking desynchronization.
+* Server-side entity tick loops checking collision boxes every tick.
+* Internal packet tracking and synchronization jitter.
 
 ### 5.1 The Solution: Closed-Form Parametric Ray Intersection
-The engine maintains floating holographic leaderboards using non-persistent NMS markers, intercepting user interactions via a pure mathematical **line-plane raycast algorithm** executed in sub-100 nanoseconds without physical bounding-box checks.
+The engine maintains floating interactive panels using non-persistent memory markers, intercepting user interactions via a pure mathematical **line-plane raycast algorithm** executed in sub-100 nanoseconds without physical bounding-box checks.
 
 Let the player's eye position be $\mathbf{P}_0 = (x_0, y_0, z_0)$ and normalized look vector be $\mathbf{D} = (d_x, d_y, d_z)$, with $\|\mathbf{D}\| = 1$. Let the holographic panel anchor coordinate be $\mathbf{H} = (h_x, h_y, h_z)$.
 
@@ -259,12 +259,12 @@ private final ExecutorService writeExecutor = Executors.newSingleThreadExecutor(
 ```
 
 ### 6.2 The OnDisable Drain Guarantee (Zero Data Loss)
-Standard Bukkit async tasks are abruptly terminated by the server kernel during shutdown, leading to truncated records and database corruption. 
+Standard unmanaged host worker threads are abruptly terminated by the simulation process during shutdown, leading to truncated records and database corruption. 
 
 This engine implements an explicit graceful shutdown protocol:
 
 ```java
-public void onDisable() {
+public void onShutdown() {
     // 1. Inhibit new incoming match registrations
     this.acceptingWrites = false;
     
@@ -301,14 +301,14 @@ Comparison between synchronous bulk placement and the time-sliced engine when re
 | **Main-Thread Stall Duration** | $324.50\text{ ms}$ | $1.65\text{ ms}$ per slice | **99.5% reduction** |
 | **Instantaneous Tickrate** | Dropped to $4.2\text{ TPS}$ | Maintained **$20.0\text{ TPS}$** | **Zero frame drops** |
 | **Network Ping Spike ($\Delta\text{RTT}$)** | $+380\text{ ms}$ packet queue delay | $< 2\text{ ms}$ jitter baseline | **Eliminated lag spikes** |
-| **Young-Gen Heap Allocation** | $84.2\text{ MB}$ (Location objects) | $< 1.2\text{ MB}$ (Scalar indices) | **98.6% GC reduction** |
+| **Young-Gen Heap Allocation** | $84.2\text{ MB}$ (Position wrappers) | $< 1.2\text{ MB}$ (Scalar indices) | **98.6% GC reduction** |
 
 ### 7.2 World Provisioning Latency
 
 | Lifecycle Strategy | Provisioning Latency | Disk I/O Operations | OS File Handle State |
 | :--- | :--- | :--- | :--- |
-| **Legacy Region Unzip (.mca)** | $2,450\text{ ms}$ | High (Sustained random reads) | Continuous lock/unlock |
-| **Cold SWM RAM-Clone** | $270\text{ ms}$ | Zero disk reads (In-memory) | Pure virtual heap allocation |
+| **Legacy Synchronous Disk Region Load** | $2,450\text{ ms}$ | High (Sustained random reads) | Continuous lock/unlock |
+| **Cold RAM-Clone** | $270\text{ ms}$ | Zero disk reads (In-memory) | Pure virtual heap allocation |
 | **Pooled Reusable World** | **$32\text{ ms}$** | **Zero disk reads** | **Persistent recycled handle** |
 
 ---
@@ -328,6 +328,6 @@ Comparison between synchronous bulk placement and the time-sliced engine when re
 ## 9. V2 Systems Roadmap
 
 1. **Off-Thread Voxel Decompression (Netty ByteBuf Pipelines):**  
-   Pre-compute compressed spatial delta packets on asynchronous Netty worker threads and push bulk block updates directly to client socket pipelines via packet-level multi-block change payloads (`PacketPlayOutMultiBlockChange`), bypassing the Spigot block state machine entirely.
+   Pre-compute compressed spatial delta packets on asynchronous Netty worker threads and push bulk block updates directly to client socket pipelines via packet-level multi-block change payloads (`BatchSpatialDeltaPacket`), bypassing the host simulation state machine entirely.
 2. **Chunk-Level Memory Swapping via Shared Memory (JNI/POSIX):**  
    Evaluate shared memory (`shm_open`) memory-mapped arena templates to share immutable base voxel data across multiple JVM server processes on the same physical host.
